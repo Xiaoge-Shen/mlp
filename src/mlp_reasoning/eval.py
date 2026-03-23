@@ -33,7 +33,7 @@ def load_model_and_tokenizer(
     tokenizer.padding_side = "left"
 
     model_kwargs: dict[str, Any] = {
-        "torch_dtype": resolve_dtype(precision),
+        "dtype": resolve_dtype(precision),
         "device_map": "auto",
         "trust_remote_code": True,
     }

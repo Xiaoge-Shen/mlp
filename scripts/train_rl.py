@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import random
@@ -162,6 +163,60 @@ def dump_run_config(args: argparse.Namespace) -> None:
     config_path.write_text(json.dumps(vars(args), indent=2), encoding="utf-8")
 
 
+def build_grpo_config(args: argparse.Namespace, reward_weights: list[float], run_name: str) -> GRPOConfig:
+    signature = inspect.signature(GRPOConfig.__init__).parameters
+
+    config_kwargs = {
+        "output_dir": args.output_dir,
+        "run_name": run_name,
+        "report_to": args.report_to,
+        "learning_rate": args.learning_rate,
+        "per_device_train_batch_size": args.per_device_train_batch_size,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
+        "num_train_epochs": args.num_train_epochs,
+        "max_steps": args.max_steps,
+        "num_generations": args.num_generations,
+        "max_prompt_length": args.max_prompt_length,
+        "max_completion_length": args.max_completion_length,
+        "logging_steps": args.logging_steps,
+        "save_strategy": "steps",
+        "save_steps": args.save_steps,
+        "save_total_limit": args.save_total_limit,
+        "log_completions": args.log_completions,
+        "bf16": args.precision == "bf16",
+        "fp16": args.precision == "fp16",
+        "gradient_checkpointing": args.gradient_checkpointing,
+        "remove_unused_columns": False,
+        "beta": args.beta,
+        "epsilon": args.epsilon,
+        "reward_weights": reward_weights,
+        "use_vllm": args.use_vllm,
+        "vllm_mode": args.vllm_mode,
+        "vllm_enable_sleep_mode": args.vllm_enable_sleep_mode,
+    }
+
+    filtered_kwargs = {key: value for key, value in config_kwargs.items() if key in signature}
+
+    if "loss_type" in signature:
+        filtered_kwargs["loss_type"] = args.loss_type
+    elif args.loss_type != "grpo":
+        raise RuntimeError(
+            "Your installed TRL does not support configurable loss_type. Upgrade TRL before using SAPO."
+        )
+
+    supports_sapo_temps = "sapo_temperature_pos" in signature and "sapo_temperature_neg" in signature
+    if supports_sapo_temps:
+        filtered_kwargs["sapo_temperature_pos"] = args.sapo_temperature_pos
+        filtered_kwargs["sapo_temperature_neg"] = args.sapo_temperature_neg
+    elif args.loss_type == "sapo":
+        raise RuntimeError(
+            "Your installed TRL version does not expose SAPO config parameters. "
+            "Upgrade TRL to a version whose GRPOConfig supports sapo_temperature_pos/neg."
+        )
+
+    return GRPOConfig(**filtered_kwargs)
+
+
 def main() -> None:
     args = parse_args()
     set_seed(args.seed)
@@ -178,7 +233,7 @@ def main() -> None:
     tokenizer.padding_side = "left"
 
     model_kwargs = {
-        "torch_dtype": resolve_dtype(args.precision),
+        "dtype": resolve_dtype(args.precision),
         "trust_remote_code": True,
     }
     if args.attn_implementation:
@@ -199,38 +254,7 @@ def main() -> None:
     )
 
     reward_funcs, reward_weights = build_reward_stack(args)
-
-    training_args = GRPOConfig(
-        output_dir=args.output_dir,
-        run_name=run_name,
-        report_to=args.report_to,
-        learning_rate=args.learning_rate,
-        per_device_train_batch_size=args.per_device_train_batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        num_train_epochs=args.num_train_epochs,
-        max_steps=args.max_steps,
-        num_generations=args.num_generations,
-        max_prompt_length=args.max_prompt_length,
-        max_completion_length=args.max_completion_length,
-        logging_steps=args.logging_steps,
-        save_strategy="steps",
-        save_steps=args.save_steps,
-        save_total_limit=args.save_total_limit,
-        log_completions=args.log_completions,
-        bf16=args.precision == "bf16",
-        fp16=args.precision == "fp16",
-        gradient_checkpointing=args.gradient_checkpointing,
-        remove_unused_columns=False,
-        loss_type=args.loss_type,
-        beta=args.beta,
-        epsilon=args.epsilon,
-        sapo_temperature_pos=args.sapo_temperature_pos,
-        sapo_temperature_neg=args.sapo_temperature_neg,
-        reward_weights=reward_weights,
-        use_vllm=args.use_vllm,
-        vllm_mode=args.vllm_mode,
-        vllm_enable_sleep_mode=args.vllm_enable_sleep_mode,
-    )
+    training_args = build_grpo_config(args, reward_weights, run_name)
 
     peft_config = None
     if args.use_lora:
@@ -261,5 +285,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-
