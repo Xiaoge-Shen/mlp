@@ -1,0 +1,7 @@
+[session]
+# Keep the interactive session in the current terminal scrollback where possible.
+disable_alt_screen = true
+
+[project]
+name = "mlp-coursework-4"
+
