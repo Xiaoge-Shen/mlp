@@ -1,100 +1,91 @@
-# Progress Tracker
+﻿# Progress Tracker
 
 ## How To Use
 
 - Treat this file as the durable project status board.
 - Update `status`, `evidence`, and `next action` after meaningful progress.
 - Keep entries short and factual.
-- If a plan changes, update this file first, then continue work.
 
 ## Overall Status
 
-- Current phase: topic selection with a reasoning-RL code scaffold ready
+- Current phase: BFCL experiment implementation with report and code scaffold ready
 - Deadline: 12:00 Friday 27 March 2026
-- Time remaining at creation: 5 days
-- Overall confidence: medium-low because the engineering scaffold exists, but the final project topic is not frozen yet
+- Overall confidence: medium because the project framing is fixed, but no BFCL benchmark results exist yet
 
 ## Milestones
 
 ### 1. Research Question Freeze
 
-- Status: in progress
-- Goal: compress the project into one clear research question with one dataset, one metric, one baseline, and one main method.
-- Evidence: the strongest current candidate is `Qwen2.5-0.5B on GSM8K: GRPO vs SAPO under fixed compute budget`
-- Next action: decide whether to commit to the GSM8K reasoning-RL topic or switch to a lower-risk alternative today
+- Status: completed
+- Goal: fix one clear question, one benchmark family, and one main method.
+- Evidence: the final topic is now `BFCL: budget-aware escalation policy over direct calling, clarification, and one-step repair for small open models`
+- Next action: none
 
 ### 2. Experiment Matrix Design
 
 - Status: in progress
-- Goal: define at most four experiments with a clear purpose for each.
-- Evidence: a preliminary four-experiment structure exists for `base/instruct baseline`, `GRPO`, `SAPO`, and `budget analysis`
-- Next action: freeze the final experiment matrix once the topic is confirmed
+- Goal: define the final four-system comparison and target BFCL subsets.
+- Evidence: the planned systems are `Direct`, `Clarify`, `Repair`, and `Escalation`, with current target subsets `missing_parameters`, `multi_turn_base`, and `memory`
+- Next action: freeze the exact subsets before large runs
 
 ### 3. Data And Evaluation Setup
 
 - Status: in progress
-- Goal: fix dataset access, preprocessing, split, and metrics.
-- Evidence: the new workspace includes GSM8K loaders, answer extraction, math verification fallback, and evaluation outputs for accuracy, tag success rate, and parse success rate
-- Next action: install the runtime dependencies and verify that the evaluation script runs end-to-end on a small GSM8K subset
+- Goal: connect the local policy runner to a real exported BFCL subset and the official BFCL evaluator.
+- Evidence: `scripts/run_bfcl_study.py` generates the official baseline plan, and `data/bfcl_normalized/sample.jsonl` documents the normalized local input schema
+- Next action: export a real BFCL subset into `data/bfcl_normalized/`
 
 ### 4. Minimal Reproducible Pipeline
 
-- Status: in progress
-- Goal: run a small end-to-end train/eval workflow locally.
-- Evidence: a TRL-based scaffold now exists in this workspace with one training script for both `GRPO` and `SAPO`, YAML configs, W&B integration, and a notebook experiment driver
-- Next action: install dependencies and run a 10-20 step smoke test locally
+- Status: completed
+- Goal: have a runnable local scaffold before full experiments.
+- Evidence: BFCL scripts compile, run-plan generation works, and summary generation works on empty outputs
+- Next action: run the first live smoke test against a reachable endpoint
 
 ### 5. Baseline Result
 
 - Status: blocked
-- Goal: obtain the first credible result for the report.
-- Evidence: the evaluation code exists, but no run has been executed in this workspace yet
-- Next action: evaluate the chosen base model and, if needed, the instruct model on a small GSM8K slice
+- Goal: obtain the first official BFCL direct baseline.
+- Evidence: `outputs/bfcl/bfcl_qwen3_budget_policy/run_plan.md` exists, but no official score CSV has been produced yet
+- Next action: run `bfcl generate` and `bfcl evaluate` for the direct baseline
 
 ### 6. Main Method Result
 
 - Status: blocked
-- Goal: compare the core method against the baseline fairly.
-- Evidence: the trainer supports both `loss_type=grpo` and `loss_type=sapo`, but no training result exists yet
-- Next action: run the GRPO baseline first under a very small fixed budget
+- Goal: compare `Escalation` against `Direct` fairly.
+- Evidence: the local policy runner exists, but no BFCL evaluation result has been attached to it yet
+- Next action: run one local policy smoke test, then wire the outputs into the BFCL evaluation workflow
 
 ### 7. Ablation And Analysis
 
 - Status: blocked
-- Goal: explain why the method works or fails.
-- Evidence: the experiment hooks exist, but no model outputs or curves exist yet
-- Next action: choose a single additional factor such as training budget or completion length after the first GRPO and SAPO runs
+- Goal: explain when clarification or repair helps and what the cost is.
+- Evidence: trace logging exists in `run_bfcl_policy.py`, but no traces have been collected from real runs
+- Next action: add one first-pass analysis after the initial smoke tests
 
 ### 8. Formal Cluster Runs
 
 - Status: blocked
-- Goal: run the final report-worthy experiments on `mlp1` via Slurm.
-- Evidence: no cluster-specific script exists yet; the current scaffold is local-first
-- Next action: only prepare Slurm once the local smoke test succeeds and the topic is frozen
+- Goal: move longer BFCL runs to the school cluster if local serving becomes the bottleneck.
+- Evidence: no cluster-specific BFCL script exists yet
+- Next action: only prepare cluster automation if the local setup becomes too slow
 
 ### 9. Report Draft
 
-- Status: blocked
-- Goal: turn experiment progress into report sections before the final day.
-- Evidence: there is enough structure to write methodology once the topic is frozen, but no results exist yet
-- Next action: start a report outline immediately after the first baseline and RL runs
+- Status: in progress
+- Goal: keep the paper draft ahead of the experiments.
+- Evidence: `report/main.tex` and `report/references.bib` are already in place
+- Next action: update the Methods and Experiments sections after the first real run
 
 ### 10. Submission Packaging
 
 - Status: blocked
-- Goal: produce the final coursework directory and zip without missing files.
-- Evidence: final report and source tree do not exist yet
-- Next action: keep the naming rules visible and leave packaging until the last stage
+- Goal: package the final report and code cleanly.
+- Evidence: submission directory has not been prepared yet
+- Next action: postpone until results stabilise
 
 ## Blockers
 
-- The final project topic is still not frozen.
-- The runtime dependencies for this new workspace are not installed yet.
-- No experiment has been executed in this workspace yet.
-- The group ID is unknown.
-
-## Next Critical Input Needed
-
-- Confirm whether to commit to the GSM8K `GRPO vs SAPO` topic
-- Install the runtime stack from `requirements.txt`
-- Run one local smoke test and one baseline evaluation
+- No official BFCL run has been executed yet.
+- The normalized sample file is only a schema example, not real benchmark data.
+- The exact model/backend pairing still needs to be confirmed at runtime.

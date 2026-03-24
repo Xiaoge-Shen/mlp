@@ -1,122 +1,67 @@
-# MLP GSM8K RL Workspace
+﻿# MLP Coursework Workspace
 
-This workspace contains a minimal but reusable TRL-based pipeline for comparing `GRPO` and `SAPO` on `Qwen2.5-0.5B` for GSM8K-style reasoning experiments.
+This repository now focuses on the BFCL coursework project:
 
-It is intentionally lighter than Open-R1:
-
-- one training script for both `GRPO` and `SAPO`
-- one evaluation script
-- W&B logging built in
-- YAML configs for reproducible runs
-- a small notebook-friendly experiment driver
+`Under a fixed inference budget, can a simple escalation policy that chooses between direct tool calling, clarification, and one-step repair improve BFCL performance for small open models?`
 
 ## Layout
 
 ```text
 D:\mlp
 ├── configs/
-│   ├── grpo_qwen25_0.5b_gsm8k.yaml
-│   └── sapo_qwen25_0.5b_gsm8k.yaml
-├── notebooks/
-│   └── experiment_driver.py
+│   └── bfcl_qwen3_budget_policy.json
+├── data/
+│   └── bfcl_normalized/
+├── outputs/
+│   └── bfcl/
+├── report/
+│   ├── main.tex
+│   └── references.bib
 ├── scripts/
-│   ├── train_rl.py
-│   └── evaluate_gsm8k.py
+│   ├── run_bfcl_policy.py
+│   ├── run_bfcl_study.py
+│   └── summarize_bfcl_study.py
 ├── src/
-│   └── mlp_reasoning/
-│       ├── __init__.py
-│       ├── data.py
-│       ├── eval.py
-│       └── rewards.py
+│   └── mlp_bfcl/
 ├── notes/
 └── requirements.txt
 ```
 
-## Install
+## Core Files
 
-Create or activate an environment first, then install:
+- `configs/bfcl_qwen3_budget_policy.json`: main experiment config
+- `scripts/run_bfcl_study.py`: generate the official BFCL baseline run plan
+- `scripts/run_bfcl_policy.py`: run one local policy variant on normalized JSONL input
+- `scripts/summarize_bfcl_study.py`: aggregate policy and official BFCL outputs
+- `report/main.tex`: coursework report draft
 
-```powershell
-pip install -r requirements.txt
-```
+## Typical Workflow
 
-Recommended extras for cluster work:
-
-- log into W&B first: `wandb login`
-- use the latest `transformers`
-- use `math-verify>=0.5.2`
-
-## Train
-
-GRPO:
+1. Generate the run plan:
 
 ```powershell
-python scripts/train_rl.py --config configs/grpo_qwen25_0.5b_gsm8k.yaml
+python scripts/run_bfcl_study.py --config configs/bfcl_qwen3_budget_policy.json
 ```
 
-SAPO:
+2. Run the official direct baseline from the generated plan in `outputs/bfcl/<study>/run_plan.md`.
+
+3. Run local policy smoke tests:
 
 ```powershell
-python scripts/train_rl.py --config configs/sapo_qwen25_0.5b_gsm8k.yaml
+python scripts/run_bfcl_policy.py `
+  --config configs/bfcl_qwen3_budget_policy.json `
+  --variant escalation `
+  --max-examples 100
 ```
 
-Example override from a notebook or shell:
+4. Aggregate results:
 
 ```powershell
-python scripts/train_rl.py `
-  --config configs/sapo_qwen25_0.5b_gsm8k.yaml `
-  --max-steps 200 `
-  --train-samples 1024 `
-  --output-dir outputs/sapo_budget_200
+python scripts/summarize_bfcl_study.py --config configs/bfcl_qwen3_budget_policy.json
 ```
 
-## Evaluate
+## Notes
 
-Evaluate a base model:
-
-```powershell
-python scripts/evaluate_gsm8k.py `
-  --base-model Qwen/Qwen2.5-0.5B `
-  --output-dir outputs/eval_base_qwen25_0.5b
-```
-
-Evaluate a trained adapter:
-
-```powershell
-python scripts/evaluate_gsm8k.py `
-  --base-model Qwen/Qwen2.5-0.5B `
-  --adapter-path outputs/grpo_qwen25_0.5b_gsm8k/checkpoint-final `
-  --output-dir outputs/eval_grpo_qwen25_0.5b
-```
-
-## W&B
-
-Training logs are sent through TRL via `report_to="wandb"`.
-
-You can also pass an API key directly:
-
-```powershell
-python scripts/train_rl.py `
-  --config configs/grpo_qwen25_0.5b_gsm8k.yaml `
-  --wandb-api-key YOUR_KEY
-```
-
-## Notebook Workflow
-
-`notebooks/experiment_driver.py` contains a small Python helper for running multiple configurations from a notebook using `subprocess`.
-
-The intended loop is:
-
-1. change config or CLI overrides
-2. launch `train_rl.py`
-3. run `evaluate_gsm8k.py`
-4. compare W&B runs
-
-## Scope
-
-This is a strong engineering baseline for the MLP coursework, but it is not the full project by itself. To make it coursework-ready, you still need:
-
-- a clear research question
-- a controlled experiment matrix
-- proper reporting of accuracy, parse rate, reward behaviour, and training stability
-- discussion of why `SAPO` is better or worse than `GRPO` under the same budget
+- `data/bfcl_normalized/sample.jsonl` is only a schema example for local iteration.
+- The official BFCL baseline still runs through `bfcl generate` and `bfcl evaluate`.
+- The repository-local BFCL scripts use only the Python standard library.

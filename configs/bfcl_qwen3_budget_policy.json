@@ -1,0 +1,51 @@
+﻿{
+  "study_name": "bfcl_qwen3_budget_policy",
+  "bfcl_project_root": "D:/mlp/outputs/bfcl_project_root",
+  "normalized_input": "data/bfcl_normalized/sample.jsonl",
+  "output_root": "outputs/bfcl",
+  "categories": [
+    "missing_parameters",
+    "multi_turn_base",
+    "memory"
+  ],
+  "official_model_name": "Qwen/Qwen3-4B-Instruct-2507-FC",
+  "backend": "vllm",
+  "skip_server_setup": true,
+  "num_gpus": 1,
+  "gpu_memory_utilization": 0.9,
+  "endpoint": {
+    "base_url": "http://127.0.0.1:8000/v1",
+    "model": "Qwen/Qwen3-4B-Instruct-2507-FC",
+    "api_key_env": "OPENAI_API_KEY",
+    "timeout_seconds": 180
+  },
+  "policy": {
+    "max_clarifications": 1,
+    "max_repairs": 1,
+    "max_total_turns": 3,
+    "temperature": 0.0,
+    "max_output_tokens": 384,
+    "ambiguity_markers": [
+      "somewhere",
+      "around",
+      "nearby",
+      "one of them",
+      "the usual one"
+    ],
+    "missing_argument_markers": [
+      "book it",
+      "schedule it",
+      "send it",
+      "use my default",
+      "for tomorrow"
+    ]
+  },
+  "variants": [
+    "direct",
+    "clarify",
+    "repair",
+    "escalation"
+  ],
+  "notes": "Main BFCL coursework study config. Replace normalized_input with a real exported subset before running policy variants."
+}
+

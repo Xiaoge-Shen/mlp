@@ -1,47 +1,31 @@
-# Handoff
+﻿# Handoff
 
 ## Current Context
 
 - Workspace root: `D:\mlp`
-- This directory contains the CW4 brief, the report template, and a new reasoning-RL experiment scaffold.
+- The final topic is now the BFCL project: `a fixed-budget escalation policy over direct tool calling, clarification, and one-step repair`.
 - There are 5 days remaining until the coursework deadline.
 - The user has a strong local laptop for development and a school cluster environment for Slurm GPU runs.
-- The user originally had no project yet, but a candidate topic has emerged: `Qwen2.5-0.5B on GSM8K with GRPO vs SAPO`.
-
-## Known Environment
-
-- Local machine is suitable for coding, preprocessing, debugging, and smaller experiments.
-- Remote cluster access is configured through SSH config.
-- Use `dice` and `mlp1` as the relevant remote hosts when needed.
-- Do not record secrets in this file.
 
 ## Current Engineering State
 
-- A new TRL-based workspace scaffold exists under `scripts/`, `src/`, `configs/`, and `notebooks/`.
-- `scripts/train_rl.py` supports both `GRPO` and `SAPO` through the same pipeline.
-- `scripts/evaluate_gsm8k.py` supports base-model and adapter evaluation.
-- W&B integration is wired into training and optional evaluation logging.
-- Runtime ML dependencies are not installed in the current Python environment yet.
+- A coursework-ready LaTeX draft exists in `report/main.tex` with bibliography `report/references.bib`.
+- A BFCL experiment scaffold exists in `src/mlp_bfcl/`, `scripts/run_bfcl_study.py`, `scripts/run_bfcl_policy.py`, `scripts/summarize_bfcl_study.py`, and `configs/bfcl_qwen3_budget_policy.json`.
+- A normalized JSONL schema example exists in `data/bfcl_normalized/sample.jsonl`.
+- Old GRPO/GSM8K code and artifacts have been removed from the repository.
 
 ## Immediate Priorities
 
-- Decide whether to commit to the GSM8K reasoning-RL topic.
-- If yes, install dependencies from `requirements.txt`.
-- Run a tiny smoke test for training.
-- Run a baseline evaluation for the chosen base or instruct model.
-- Freeze the final four-experiment matrix before large runs.
-
-## Progress Tracking
-
-- Primary tracker: `notes/progress_tracker.md`
-- Update the tracker whenever a milestone advances, a decision changes, or a new blocker appears.
-- Use the tracker rather than chat history to understand project state.
+- Run the official direct BFCL baseline from the generated run plan.
+- Replace the sample normalized JSONL with a real exported BFCL subset.
+- Run the four BFCL variants: `Direct`, `Clarify`, `Repair`, and `Escalation`.
+- Fill the report tables after the first benchmark results land.
 
 ## Resume Checklist
 
 - Read `notes/project_brief.md`
 - Read this handoff
 - Read `notes/progress_tracker.md`
-- Inspect `README.md` for the new training and evaluation commands
-- Confirm the final topic before spending compute
-- Decide what must run locally versus on cluster
+- Inspect `README.md`
+- Inspect `report/main.tex`
+- Inspect `outputs/bfcl/<study>/run_plan.md`
