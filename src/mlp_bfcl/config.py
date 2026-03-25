@@ -15,6 +15,19 @@ class EndpointConfig:
 
 
 @dataclass
+class ServiceConfig:
+    model: str
+    served_model_name: str | None = None
+    host: str = "127.0.0.1"
+    port: int = 1053
+    dtype: str = "auto"
+    generation_config: str = "vllm"
+    max_model_len: int = 32768
+    require_api_key: bool = False
+    api_key_env: str = "VLLM_API_KEY"
+
+
+@dataclass
 class PolicyConfig:
     max_clarifications: int = 1
     max_repairs: int = 1
@@ -38,6 +51,7 @@ class StudyConfig:
     num_gpus: int = 1
     gpu_memory_utilization: float = 0.9
     endpoint: EndpointConfig | None = None
+    service: ServiceConfig | None = None
     policy: PolicyConfig = field(default_factory=PolicyConfig)
     variants: list[str] = field(default_factory=lambda: ["direct", "clarify", "repair", "escalation"])
     notes: str = ""
@@ -53,12 +67,28 @@ def _require(data: dict[str, Any], key: str) -> Any:
     return data[key]
 
 
+def _build_endpoint_from_service(data: dict[str, Any], service: ServiceConfig) -> EndpointConfig:
+    return EndpointConfig(
+        base_url=f"http://{service.host}:{service.port}/v1",
+        model=service.served_model_name or service.model,
+        api_key_env=service.api_key_env,
+        timeout_seconds=180,
+    )
+
+
 def load_study_config(path: str | Path) -> StudyConfig:
     path = Path(path)
     data = json.loads(path.read_text(encoding="utf-8-sig"))
+    service = None
+    if "service" in data and data["service"] is not None:
+        service = ServiceConfig(**data["service"])
+
     endpoint = None
     if "endpoint" in data and data["endpoint"] is not None:
         endpoint = EndpointConfig(**data["endpoint"])
+    elif service is not None:
+        endpoint = _build_endpoint_from_service(data, service)
+
     policy = PolicyConfig(**data.get("policy", {}))
     return StudyConfig(
         study_name=_require(data, "study_name"),
@@ -72,6 +102,7 @@ def load_study_config(path: str | Path) -> StudyConfig:
         num_gpus=data.get("num_gpus", 1),
         gpu_memory_utilization=data.get("gpu_memory_utilization", 0.9),
         endpoint=endpoint,
+        service=service,
         policy=policy,
         variants=data.get("variants", ["direct", "clarify", "repair", "escalation"]),
         notes=data.get("notes", ""),

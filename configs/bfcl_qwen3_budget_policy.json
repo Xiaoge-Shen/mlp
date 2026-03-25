@@ -1,10 +1,10 @@
 ﻿{
   "study_name": "bfcl_qwen3_budget_policy",
-  "bfcl_project_root": "D:/mlp/outputs/bfcl_project_root",
-  "normalized_input": "data/bfcl_normalized/sample.jsonl",
+  "bfcl_project_root": "outputs/bfcl_project_root",
+  "normalized_input": "data/bfcl_normalized/bfcl_v4_multi_turn_miss_param_turns.jsonl",
   "output_root": "outputs/bfcl",
   "categories": [
-    "missing_parameters",
+    "multi_turn_miss_param",
     "multi_turn_base",
     "memory"
   ],
@@ -13,11 +13,16 @@
   "skip_server_setup": true,
   "num_gpus": 1,
   "gpu_memory_utilization": 0.9,
-  "endpoint": {
-    "base_url": "http://127.0.0.1:8000/v1",
-    "model": "Qwen/Qwen3-4B-Instruct-2507-FC",
-    "api_key_env": "OPENAI_API_KEY",
-    "timeout_seconds": 180
+  "service": {
+    "model": "Qwen/Qwen3-4B-Instruct-2507",
+    "served_model_name": null,
+    "host": "127.0.0.1",
+    "port": 1053,
+    "dtype": "auto",
+    "generation_config": "vllm",
+    "max_model_len": 32768,
+    "require_api_key": false,
+    "api_key_env": "VLLM_API_KEY"
   },
   "policy": {
     "max_clarifications": 1,
@@ -46,6 +51,5 @@
     "repair",
     "escalation"
   ],
-  "notes": "Main BFCL coursework study config. Replace normalized_input with a real exported subset before running policy variants."
+  "notes": "Main BFCL coursework study config. Edit this file only; derive BFCL .env and vLLM serve command with scripts/prepare_bfcl_runtime.py."
 }
-

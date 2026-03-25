@@ -3,23 +3,34 @@
 ## Current Context
 
 - Workspace root: `D:\mlp`
-- The final topic is now the BFCL project: `a fixed-budget escalation policy over direct tool calling, clarification, and one-step repair`.
-- There are 5 days remaining until the coursework deadline.
-- The user has a strong local laptop for development and a school cluster environment for Slurm GPU runs.
+- The BFCL topic has been narrowed to a coursework-safe claim: `a lightweight verifier-based clarification guard and escalation policy for under-specified BFCL multi-turn tool calls`
+- Current date context: 25 March 2026; deadline remains 27 March 2026 at 12:00
+- The user has already run the official direct BFCL baseline locally through vLLM and the BFCL CLI
 
 ## Current Engineering State
 
-- A coursework-ready LaTeX draft exists in `report/main.tex` with bibliography `report/references.bib`.
-- A BFCL experiment scaffold exists in `src/mlp_bfcl/`, `scripts/run_bfcl_study.py`, `scripts/run_bfcl_policy.py`, `scripts/summarize_bfcl_study.py`, and `configs/bfcl_qwen3_budget_policy.json`.
-- A normalized JSONL schema example exists in `data/bfcl_normalized/sample.jsonl`.
-- Old GRPO/GSM8K code and artifacts have been removed from the repository.
+- Official direct BFCL results exist under `outputs/bfcl/bfcl_qwen3_budget_policy/official/direct/`
+- Current useful direct baseline numbers are:
+  - `multi_turn_base = 27.50%`
+  - `multi_turn_miss_param = 18.00%`
+  - `memory_kv = 12.26%`
+- A new diagnostics script exists at `scripts/analyze_miss_param_turns.py`
+- That script has already produced `outputs/bfcl/bfcl_qwen3_budget_policy/analysis/miss_param/summary.json`
+- The current miss-param diagnostic summary is:
+  - `harmful_call_rate_on_empty_turns = 0.6158`
+  - `no_tool_call_rate_on_empty_turns = 0.3842`
+- `src/mlp_bfcl/toolcall.py` now provides shared tool-call parsing
+- `src/mlp_bfcl/policy.py` and `scripts/run_bfcl_policy.py` now implement verifier-based Clarify-Guard and Escalation
+- A 200-turn exported `multi_turn_miss_param` pilot has been run for `direct`, `clarify`, and `escalation`
+- `report/main.tex` has been updated to match the verifier-based project claim and the current mixed-result pilot finding
+- `report/main.pdf` now builds successfully via `pdflatex` + `bibtex`
 
 ## Immediate Priorities
 
-- Run the official direct BFCL baseline from the generated run plan.
-- Replace the sample normalized JSONL with a real exported BFCL subset.
-- Run the four BFCL variants: `Direct`, `Clarify`, `Repair`, and `Escalation`.
-- Fill the report tables after the first benchmark results land.
+- Use the 200-turn pilot as the main method result, with `Clarify-Guard` as the strongest variant and `Escalation` as a secondary comparison
+- Tighten the report wording around the main trade-off: fewer harmful calls, more false clarifications, roughly doubled latency
+- Decide whether to add one more analysis table or stop here and focus on polishing the report
+- Keep `memory_kv` as a negative-control reference, not as the main battlefront
 
 ## Resume Checklist
 
@@ -28,4 +39,10 @@
 - Read `notes/progress_tracker.md`
 - Inspect `README.md`
 - Inspect `report/main.tex`
-- Inspect `outputs/bfcl/<study>/run_plan.md`
+- Inspect `outputs/bfcl/bfcl_qwen3_budget_policy/analysis/miss_param/summary.json`
+- Inspect `outputs/bfcl/bfcl_qwen3_budget_policy/policy_runs/direct_200/metrics.json`
+- Inspect `outputs/bfcl/bfcl_qwen3_budget_policy/policy_runs/clarify_200/metrics.json`
+- Inspect `outputs/bfcl/bfcl_qwen3_budget_policy/policy_runs/escalation_200/metrics.json`
+- Inspect `outputs/bfcl/bfcl_qwen3_budget_policy/official/direct/score/data_multi_turn.csv`
+
+- Key comparison file: `outputs/bfcl/bfcl_qwen3_budget_policy/analysis/policy_200_comparison.json`

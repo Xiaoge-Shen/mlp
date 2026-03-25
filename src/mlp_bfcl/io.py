@@ -10,7 +10,7 @@ from .schema import DialogueMessage, NormalizedExample, ToolSpec
 def load_normalized_examples(path: str | Path, max_examples: int | None = None) -> list[NormalizedExample]:
     path = Path(path)
     examples: list[NormalizedExample] = []
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8-sig") as handle:
         for line in handle:
             if not line.strip():
                 continue

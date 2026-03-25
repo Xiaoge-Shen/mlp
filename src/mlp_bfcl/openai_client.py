@@ -26,8 +26,9 @@ class OpenAICompatibleClient:
         api_key = os.environ.get(endpoint.api_key_env, "")
         self._headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
         }
+        if api_key:
+            self._headers["Authorization"] = f"Bearer {api_key}"
 
     def chat_completion(
         self,

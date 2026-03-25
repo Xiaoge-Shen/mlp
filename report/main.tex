@@ -17,15 +17,14 @@
 
 \newcommand{\GroupID}{GROUP\_ID}
 \newcommand{\PrimaryModel}{Qwen3-4B-Instruct-2507}
-\newcommand{\SecondModel}{[optional second small open model]}
 \newcommand{\placeholder}[1]{\textcolor{red}{[TBD: #1]}}
 
 \setlength{\columnsep}{0.22in}
 \setlist[itemize]{leftmargin=*,topsep=2pt,itemsep=1pt}
 \setlist[enumerate]{leftmargin=*,topsep=2pt,itemsep=1pt}
 
-\title{Budget-Aware Escalation for Tool Calling on BFCL\\
-\large Clarification and One-Step Repair for Small Open Models}
+\title{A Lightweight Verifier-Based Clarification Guard for Under-Specified Tool Calls on BFCL\\
+\large Fixed-Budget Robustness for a Small Open Model}
 \author{Group \GroupID\\
 University of Edinburgh\\
 \texttt{\placeholder{student numbers / names if required}}}
@@ -36,126 +35,122 @@ University of Edinburgh\\
 \maketitle
 
 \begin{abstract}
-Tool use is now a core capability for large language model (LLM) agents, but recent benchmarks show that even strong models remain brittle when tool calls require multi-turn state tracking, missing-parameter handling, or recovery from execution failures. This project studies a narrow and practical question: under a fixed inference budget, can a simple escalation policy that chooses between direct tool calling, a clarification question, and one-step repair improve function-calling performance for small open models on the Berkeley Function-Calling Leaderboard (BFCL)? The proposed system is intentionally lightweight: it does not fine-tune the model or add external training data, and instead focuses on test-time decision making over a small action set. The coursework contribution is therefore empirical and system-oriented rather than algorithmically novel: we formulate a budget-aware tool-calling policy, implement it on top of the official BFCL evaluation pipeline, and analyse the trade-off between task success and inference cost. This draft already fixes the task definition, data sources, related-work framing, and evaluation plan. Final quantitative results, tables, and error examples will be inserted after the remaining BFCL runs are completed.
+Tool use is now a standard capability for LLM agents, but benchmark results continue to show that small open models remain brittle when requests are under-specified or require stateful multi-turn interaction. This project studies a narrow empirical question on the Berkeley Function-Calling Leaderboard (BFCL): can a lightweight inference-time clarification guard reduce harmful tool calls under a fixed interaction budget? We focus on a single 4B open model, \PrimaryModel{}, and analyse the gap between normal multi-turn function calling and a harder missing-parameter setting. The official direct baseline already shows a substantial drop from 27.50\% on \texttt{multi\_turn\_base} to 18.00\% on \texttt{multi\_turn\_miss\_param}, motivating a targeted intervention. The proposed method does not fine-tune the model. Instead, it first generates a draft tool call, then asks the same model to verify whether the draft should be executed or replaced by a clarification question. On a 200-turn pilot exported from the official \texttt{multi\_turn\_miss\_param} split, this verifier-based guard reduces harmful tool calls on empty-ground-truth turns from 66.67\% to 14.58\%, but it also over-clarifies many required-action turns, increasing the no-call rate on required turns from 22.37\% to 59.21\%. The contribution is therefore a focused, reproducible systems study of a concrete robustness--latency trade-off rather than a new learning algorithm.
 \end{abstract}
 
 \section{Introduction}
-Large language models are increasingly used as agents that interact with external tools, APIs, or environments rather than only generating text. Early work such as Toolformer showed that language models can learn when to call tools and how to incorporate tool outputs into generation \citep{schick2023toolformer}. ReAct further demonstrated that interleaving reasoning with actions can improve decision making on interactive and knowledge-intensive tasks \citep{yao2023react}. As a result, tool use has become a practical requirement for assistant-style systems rather than a niche capability.
+Tool use extends language models beyond free-form text generation and is now central to assistant-style systems. Toolformer showed that language models can learn to call APIs and incorporate their outputs into generation \citep{schick2023toolformer}. ReAct later demonstrated the broader principle of interleaving reasoning with actions for interactive tasks \citep{yao2023react}. These ideas motivate modern tool-calling assistants, but they do not by themselves guarantee reliable behaviour when the task requires structured state tracking, missing-parameter handling, or recovery from invalid actions.
 
-However, strong single-turn behaviour does not imply robust agentic behaviour. The Berkeley Function-Calling Leaderboard (BFCL) was introduced precisely because tool use needs structured evaluation across diverse settings, including serial and parallel calls, hallucination detection, and stateful multi-step scenarios \citep{patil2025bfcl}. The BFCL results show a recurring pattern: models often perform well when the task is a clean one-shot call, but degrade substantially on agentic categories such as missing parameters, memory, and long-horizon interaction \citep{patil2025bfcl}. Recent tool-centric analyses have reinforced the same point from another angle. FAIL-TaLMs shows that under-specified requests and unavailable tools remain major failure modes for tool-augmented language models \citep{trevino2025failtalms}. Other work has specifically targeted clarification questions \citep{chen2024style,zhang2025asktoact}, parameter-filling checklists \citep{cui2025hitec}, and tool-use self-critique \citep{huang2025critictool}.
+The Berkeley Function-Calling Leaderboard (BFCL) was introduced to evaluate exactly these behaviours in a standardised way \citep{patil2025bfcl}. Its agentic and multi-turn categories show that tool use remains brittle even when the model performs well on simpler one-shot calls \citep{patil2025bfcl}. Recent analyses reinforce the same point from different perspectives. FAIL-TaLMs identifies under-specified requests and unavailable tools as recurring failure modes \citep{trevino2025failtalms}. STYLE and AskToAct study clarification behaviour in conversational settings \citep{chen2024style,zhang2025asktoact}. HiTEC and CRITICTOOL focus on parameter-checking and tool-use self-critique \citep{cui2025hitec,huang2025critictool}. Together, these results suggest that deciding \emph{when not to act immediately} is a real systems problem rather than a prompt-formatting detail.
 
-This project focuses on a constrained version of that broader problem. Instead of designing a new tool-learning objective or collecting a new dataset, we ask whether a small open model can benefit from a simple \emph{escalation policy} at inference time. The policy chooses among three actions:
-\begin{itemize}
-    \item \textbf{Direct tool calling}: the model attempts the tool call immediately.
-    \item \textbf{Clarification}: the model asks a single follow-up question before calling.
-    \item \textbf{One-step repair}: after a failed tool call, the model receives the failure signal and is allowed one correction attempt.
-\end{itemize}
-The key constraint is that all methods operate under the same fixed inference budget. The question is not whether unlimited interaction can eventually solve more instances, but whether a small amount of extra reasoning can be spent \emph{selectively} enough to improve BFCL performance without making the system impractically slow or verbose.
+This coursework project focuses on a deliberately narrow version of that problem. Rather than training a new model or collecting additional preference data, we ask whether a lightweight \emph{verifier-based clarification guard} can improve robustness for a small open model under a fixed interaction budget. The central observation is simple: the direct BFCL baseline for \PrimaryModel{} is much worse on the missing-parameter subset than on the normal multi-turn subset. If that drop is driven by premature or harmful tool calls, then a small amount of extra control at inference time may help even without any weight updates.
 
-The intended contribution is therefore twofold. First, we provide a reproducible empirical study of a concrete decision problem that sits between direct prompting and heavier agent frameworks. Second, we frame the method around a cost-aware trade-off that is relevant to real deployment, where every clarification turn and every repair attempt consumes latency and tokens. To our knowledge, prior work has studied clarification, parameter checking, and error recovery individually, but we are not aware of prior work that evaluates this exact combination as a unified fixed-budget policy on BFCL using small open models. That claim is intentionally narrow, since the novelty here is in the experimental framing rather than a claim of inventing clarification or repair from scratch.
+The contribution is therefore empirical and system-oriented. We study a test-time policy that first asks the model for a draft tool call and then runs a second-pass verifier prompt to decide whether the draft should be executed or replaced by a clarification question. We then compare this policy to the official direct baseline and to a slightly broader escalation policy that preserves direct behaviour on normal cases. This is a modest claim, but it is appropriate for a reproducible coursework project: the goal is not to claim a new foundation-model capability, but to analyse one concrete failure mode with a controlled intervention and standard metrics.
 
 \section{Task and Data}
-\subsection{Task Definition}
-The core research question is:
+\subsection{Research Question}
+The main research question is:
 \begin{quote}
-\emph{Under a fixed inference budget, can a simple escalation policy that chooses between direct tool calling, clarification, and one-step repair improve BFCL performance for small open models?}
+\emph{Can a lightweight verifier-based clarification guard reduce harmful tool calls on under-specified BFCL multi-turn cases for a small open model under a fixed inference budget, and what robustness--latency trade-off does it introduce?}
 \end{quote}
 
-The task is evaluated as structured tool use rather than free-form dialogue. Given a user request, a tool schema, and any available dialogue history, the system must decide whether to call a tool directly, ask a clarification question, or repair a failed call after receiving feedback. This makes the project closer to agentic decision making than to standard instruction following.
+The claim is intentionally narrow. We do not attempt to improve all BFCL categories equally, and we do not claim to invent clarification or repair from scratch. Instead, we study a focused inference-time control policy on the subset where it is most likely to matter.
 
-\subsection{Benchmark}
-The project uses BFCL as the primary benchmark. BFCL contains roughly 2{,}000 question-function-answer pairs spanning several programming and API styles, and extends beyond single-turn function selection into stateful and agentic evaluation categories \citep{patil2025bfcl}. The official BFCL paper emphasises that memory, dynamic decision making, and long-horizon reasoning remain open challenges even for strong models \citep{patil2025bfcl}. That makes BFCL a good fit for this coursework question because it provides:
+\subsection{Benchmark and Subsets}
+The project uses the official BFCL pipeline and evaluator \citep{patil2025bfcl}. BFCL is well suited to this coursework because it provides a current tool-calling benchmark, official scripts, and agentic subsets that stress the exact behaviours of interest.
+
+The primary subsets used in this project are:
 \begin{itemize}
-    \item a standardised and current evaluation target for tool calling;
-    \item automatic metrics and official evaluation scripts;
-    \item agentic subsets that directly stress the behaviours this project studies.
+    \item \texttt{multi\_turn\_base}: normal multi-turn tool calling;
+    \item \texttt{multi\_turn\_miss\_param}: under-specified multi-turn requests with missing arguments;
+    \item \texttt{memory\_kv}: a lightweight negative-control slice to check whether any gains are specific to missing-parameter handling rather than generic across all agentic tasks.
 \end{itemize}
 
-\subsection{Planned Evaluation Slices}
-The full BFCL benchmark is broad, but not every category is equally relevant to the proposed policy. The main experiments will therefore prioritise the following slices:
-\begin{itemize}
-    \item \texttt{missing\_parameters}: directly tests whether asking a clarification question improves behaviour on under-specified requests;
-    \item \texttt{multi\_turn\_base} and/or \texttt{multi\_turn\_augmented}: tests whether the policy remains useful when context must be carried across turns;
-    \item \texttt{memory}: tests state tracking under small inference budgets;
-    \item \texttt{overall} or an official aggregate reported by BFCL: included as a summary view, but not used alone to motivate conclusions.
-\end{itemize}
-If compute is tighter than expected, the report will explicitly narrow the primary claims to the first two categories rather than over-claiming broad generality.
+The main analysis is centred on \texttt{multi\_turn\_miss\_param}. The other subsets are used to anchor the interpretation: \texttt{multi\_turn\_base} tests whether the intervention hurts normal multi-turn behaviour, and \texttt{memory\_kv} tests whether the same policy transfers to a different failure mode where clarification is less obviously useful.
 
-\subsection{Models}
-The target setting is \emph{small open models}, defined here as publicly available models that can be served locally on the coursework hardware budget. The current primary candidate is \PrimaryModel{}, motivated by the Qwen3 technical report and model-card guidance that highlight strong agent capabilities and practical tool use for open models in this size range \citep{yang2025qwen3,qwen2025modelcard}. A second model may be added if time allows in order to test whether the conclusions generalise beyond a single architecture:
-\begin{itemize}
-    \item Primary model: \PrimaryModel{}
-    \item Optional second model: \SecondModel{}
-\end{itemize}
-The final report will state the exact model checkpoints, quantisation format, serving framework, and decoding parameters.
+\subsection{Model and Serving Setup}
+The primary model is \PrimaryModel{} \citep{yang2025qwen3,qwen2025modelcard}, served locally through an OpenAI-compatible \texttt{vLLM} endpoint. The local serving configuration uses host \texttt{127.0.0.1}, port \texttt{1053}, \texttt{dtype=auto}, \texttt{max\_model\_len=32768}, and \texttt{gpu\_memory\_utilization=0.9}. For the local policy runner, decoding is deterministic with temperature $0.0$ and a maximum of $384$ output tokens. All experiments in this report were run on the local coursework machine with an RTX 5090 Laptop GPU, 64 GB RAM, and an Intel U9 275H CPU. This setup matches the practical scope of the coursework: a small open model that can be evaluated reproducibly on a single local GPU without depending on cluster scheduling for the main results.
+
+\subsection{Current Direct Baseline}
+The official direct baseline has already been run on the selected BFCL slices. The current category-level results are shown in Table~\ref{tab:baseline}.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lc}
+\toprule
+Subset & Direct Accuracy \\
+\midrule
+\texttt{multi\_turn\_base} & 27.50\% \\
+\texttt{multi\_turn\_miss\_param} & 18.00\% \\
+\texttt{memory\_kv} & 12.26\% \\
+\texttt{memory\_vector} & 16.13\% \\
+\texttt{memory\_rec\_sum} & 27.74\% \\
+\bottomrule
+\end{tabular}
+\caption{Current official BFCL direct baseline for \PrimaryModel{} on the evaluated subsets.}
+\label{tab:baseline}
+\end{table}
+
+The most important observation is the drop from 27.50\% to 18.00\% between \texttt{multi\_turn\_base} and \texttt{multi\_turn\_miss\_param}. This provides a concrete motivation for the proposed method: under-specified requests are already a demonstrated weakness for the direct baseline.
 
 \section{Methodology}
-\subsection{Problem Setup}
-Let $x$ denote the current user request, $h$ the dialogue history, and $\tau$ the tool schema. A baseline function-calling system maps $(x,h,\tau)$ directly to either a tool call or an abstention. We instead define a small action space:
-\[
-\mathcal{A} = \{\texttt{direct\_call}, \texttt{clarify}, \texttt{repair}\}.
-\]
-The escalation policy decides which action to take under a fixed budget on the number of turns and/or generated tokens.
+\subsection{Baseline System}
+The direct baseline uses the official BFCL generation and evaluation pipeline with no extra controller. Given a user request, dialogue history, and tool schema, the model directly emits tool calls or natural-language fallback text. This setting is important because it establishes a standard reference point and keeps the evaluator unchanged.
 
-\subsection{Baselines}
-The experiments are designed around simple baselines that isolate where gains come from:
+\subsection{Clarification Guard}
+The main proposed method is a lightweight \textbf{Clarify-Guard}. It is an inference-time controller that operates before any tool call is executed. The guard performs two steps:
+\begin{enumerate}
+    \item Ask the model for a \emph{draft} tool call under the standard direct prompt.
+    \item Ask the model for a second-pass \emph{verification decision} that outputs either \texttt{execute} or \texttt{clarify}, together with a short reason and a list of missing fields.
+\end{enumerate}
+
+This method is intentionally simple. It does not use fine-tuning, preference optimisation, reinforcement learning, or external retrieved knowledge. The controller only uses information already available at inference time: the user request, dialogue history, tool schema, and the model's own draft action.
+
+\subsection{Draft Inspection and Verification}
+The controller still performs a lightweight schema-aware inspection before the verifier decision is applied. In the local implementation, it:
 \begin{itemize}
-    \item \textbf{Direct baseline}: one-shot function calling with no clarification and no repair.
-    \item \textbf{Always-clarify baseline}: whenever required information appears incomplete, ask one clarification question before acting.
-    \item \textbf{Repair-only baseline}: act directly, then allow one repair turn only if the first attempt fails.
+    \item parses the first draft \texttt{<tool\_call>} block emitted by the model;
+    \item checks whether the predicted tool exists in the available schema;
+    \item extracts the required fields for that tool;
+    \item marks a call as under-specified if any required field is missing or filled by an empty or placeholder-like value.
 \end{itemize}
-These baselines are intentionally minimal. The proposed method should beat them not by using more overall interaction, but by spending the same budget more selectively.
 
-\subsection{Proposed Escalation Policy}
-The proposed policy is intentionally simple and test-time only. It does not require additional training data, reinforcement learning, or preference optimisation. Instead, it uses lightweight decision rules based on three kinds of signals:
-\begin{enumerate}
-    \item \textbf{Information completeness}: are all required tool arguments grounded in the current request or dialogue state?
-    \item \textbf{Ambiguity}: does the request contain unresolved references, missing slots, or conflicting values?
-    \item \textbf{Failure feedback}: if a tool call fails, was the failure caused by parse error, schema mismatch, unsupported function choice, or execution-time error?
-\end{enumerate}
+A small set of ambiguity markers is still retained as a weak prior for obviously vague requests, but the main trigger is the model's own verifier decision, conditioned on the draft action and the tool schema. This makes the method stronger than a pure keyword heuristic while still remaining lightweight and reproducible.
 
-The policy proceeds as follows:
-\begin{enumerate}
-    \item Inspect the current request, dialogue history, and tool schema.
-    \item If required arguments appear missing or ambiguity is high, ask one clarification question.
-    \item Otherwise, issue a direct tool call.
-    \item If the direct call fails and repair budget remains, provide the error feedback to the model and allow exactly one repair attempt.
-    \item Return the final tool call or abstain if the budget is exhausted.
-\end{enumerate}
+\subsection{Escalation Policy}
+The final policy used in the main comparison is \textbf{Escalation}. It preserves the direct baseline on normal cases and only triggers clarification when the draft inspection and verifier together indicate that the request is under-specified. In other words:
+\begin{itemize}
+    \item if the draft call is accepted by the verifier, keep the direct action;
+    \item if the draft call is under-specified, ask one clarification question instead of executing the call.
+\end{itemize}
 
-This design makes the coursework contribution concrete: the novelty is not a new learning algorithm, but a budget-aware agent loop that unifies three behaviours often studied separately.
+This framing matters because the project is not trying to show that ``asking more questions'' is always good. The intended result is narrower: a small amount of additional interaction should be spent selectively on the cases where the direct baseline is weakest.
+
+\subsection{Optional Repair Extension}
+The repository still contains a one-step repair scaffold, but this is now treated as an optional extension rather than the core contribution. The main coursework claim should stand even without the repair experiment. This reduces engineering risk and keeps the project aligned with the strongest empirical signal currently available, namely the missing-parameter gap in the direct baseline.
 
 \subsection{Budget Definition}
-The phrase \emph{fixed inference budget} must be operationalised clearly. The report will use one primary budget definition and may include the other as secondary analysis:
+The primary budget is a \textbf{fixed interaction budget}. For the main experiments, the controller is allowed at most one additional model interaction beyond the initial draft generation. In practice:
 \begin{itemize}
-    \item \textbf{Turn budget}: at most one clarification turn and at most one repair turn;
-    \item \textbf{Token budget}: total generated tokens capped to a fixed threshold per example.
+    \item Direct uses one model response;
+    \item Clarify-Guard uses a direct draft plus, only when triggered, one clarification response;
+    \item Escalation uses the same budget but spends the second interaction only on under-specified cases.
 \end{itemize}
-The primary planned setting is a turn budget because it is easier to interpret and more robust across serving backends. Token usage and latency will still be reported as secondary cost metrics.
 
-\subsection{Implementation Notes}
-The implementation will sit on top of the official BFCL generation and evaluation pipeline rather than replacing it. This keeps the benchmark, metrics, and output format standardised. The policy layer will be implemented as a thin controller that chooses among direct prompting, clarification prompting, and repair prompting while logging:
-\begin{itemize}
-    \item chosen action sequence;
-    \item clarification frequency;
-    \item repair trigger frequency;
-    \item repair success rate;
-    \item token usage and wall-clock latency.
-\end{itemize}
-This instrumentation is important because even a positive accuracy result would be unconvincing if it doubled the cost or only worked by overusing clarification.
+Latency and token usage are reported as secondary cost metrics, since an intervention that improves accuracy only by doubling cost would be much less convincing.
 
 \section{Experiments}
 \subsection{Research Questions}
-The planned experiments are organised around four research questions:
+The final experiments are organised around three core questions:
 \begin{itemize}
-    \item \textbf{RQ1}: Does the proposed escalation policy improve BFCL accuracy over direct tool calling under the same inference budget?
-    \item \textbf{RQ2}: When does clarification help, and when does it unnecessarily consume budget?
-    \item \textbf{RQ3}: Is one-step repair more useful than proactive clarification on the selected BFCL subsets?
-    \item \textbf{RQ4}: What is the trade-off between task success and cost (tokens, turns, latency)?
+    \item \textbf{RQ1}: How much worse is the direct baseline on under-specified multi-turn requests than on normal multi-turn requests?
+    \item \textbf{RQ2}: Can Clarify-Guard reduce harmful tool calls on \texttt{multi\_turn\_miss\_param}?
+    \item \textbf{RQ3}: What robustness--latency trade-off does Escalation introduce, and how much over-clarification does it cause on turns that should execute directly?
 \end{itemize}
 
-\subsection{Experimental Matrix}
-The current planned experiment matrix is shown in Table~\ref{tab:matrix}. This structure is fixed enough to start writing the report, while leaving room for final model and subset choices.
+\subsection{System Variants}
+The main comparison is intentionally small and controlled, as shown in Table~\ref{tab:systems}.
 
 \begin{table}[t]
 \centering
@@ -164,99 +159,76 @@ The current planned experiment matrix is shown in Table~\ref{tab:matrix}. This s
 \toprule
 System & Description \\
 \midrule
-Direct & One-shot tool call with no clarification and no repair. \\
-Clarify & One clarification turn before acting when the policy detects missing information. \\
-Repair & Direct tool call followed by one repair attempt after failure. \\
-Escalation & Proposed budget-aware controller over direct call, clarification, and one-step repair. \\
+Direct & Official BFCL direct setting with no extra controller. \\
+Clarify-Guard & Direct draft generation followed by a verifier decision that either executes the draft call or replaces it with one clarification question. \\
+Escalation & Keep the direct action on normal cases, but trigger the verifier-based Clarify-Guard only when the draft call appears under-specified. \\
+Repair (optional) & Secondary extension using one repair attempt after a failed direct call. \\
 \bottomrule
 \end{tabular}
-\caption{Planned system variants for the main BFCL study.}
-\label{tab:matrix}
+\caption{System variants studied in this report. Repair is retained only as a secondary scaffold and is not part of the core claim.}
+\label{tab:systems}
 \end{table}
 
 \subsection{Metrics}
-The primary metric will be the official BFCL success/accuracy metric reported by the evaluator for the chosen subsets. Depending on the subset and evaluator output, this may include AST-based correctness and official category accuracy \citep{patil2025bfcl}. Secondary metrics will include:
+The primary metric is the official BFCL subset accuracy. However, BFCL alone is not sufficient to explain why the controller helps or fails. We therefore add a small set of diagnostic metrics for \texttt{multi\_turn\_miss\_param}:
 \begin{itemize}
-    \item execution success rate, if available from the evaluator or logged controller outputs;
-    \item clarification frequency;
-    \item repair trigger frequency and repair success rate;
-    \item mean generated tokens;
-    \item mean number of model turns;
-    \item mean latency per example.
+    \item \textbf{Harmful-call rate on empty-ground-truth turns}: the fraction of turns whose official ground truth contains no tool call but the model still emits one;
+    \item \textbf{No-call rate on empty-ground-truth turns}: the complementary rate, which is useful for showing whether the controller is actually suppressing bad actions;
+    \item \textbf{No-call rate on required turns}: how often the controller suppresses a call even though the exported BFCL turn expects a tool action;
+    \item \textbf{Clarification trigger rate}: how often the guard intervenes;
+    \item \textbf{Mean latency and completion tokens}: the runtime cost of the intervention.
 \end{itemize}
-This metric set is necessary because the policy should not be judged on accuracy alone.
 
-\subsection{Statistical Testing}
-The main statistical test will be McNemar's test on paired success/failure outcomes for examples evaluated by two systems. This matches the binary paired comparison setup used for many benchmarked classification-style outcomes. For cost metrics such as tokens or latency, a paired non-parametric test such as Wilcoxon signed-rank may be reported if the final sample sizes justify it. Exact significance thresholds and confidence intervals will be stated in the final report after the final run count is fixed.
+These extra metrics are important because the official BFCL score is binary at the example level. A clarification guard may improve behaviour by preventing locally harmful calls even when the overall BFCL score changes only modestly.
 
-\subsection{Planned Tables and Figures}
-The report will contain at least the following result artefacts.
+\subsection{Pilot Results and Interpretation}
+The direct baseline is already available, and the turn-level guard pilot has also been run on 200 exported \texttt{multi\_turn\_miss\_param} turns. The resulting story is simple and coherent:
+\begin{enumerate}
+    \item \texttt{multi\_turn\_miss\_param} is clearly harder than \texttt{multi\_turn\_base} for the direct baseline;
+    \item Clarify-Guard strongly reduces harmful premature tool calls on under-specified turns;
+    \item this robustness gain is offset by substantial over-clarification and higher latency.
+\end{enumerate}
+
+The current pilot comparison is shown in Table~\ref{tab:main-results}. It should be interpreted as a turn-level diagnostic experiment rather than a replacement for the official BFCL subset accuracy.
 
 \begin{table}[t]
 \centering
 \small
-\begin{tabular}{lccc}
+\begin{tabular}{lcccc}
 \toprule
-Method & BFCL Acc. & Exec. Rate & Avg. Tokens \\
+Method & Harmful Call Rate & No-Call on Required & Avg. Latency & Avg. Tokens \\
 \midrule
-Direct & \placeholder{result} & \placeholder{result} & \placeholder{result} \\
-Clarify & \placeholder{result} & \placeholder{result} & \placeholder{result} \\
-Repair & \placeholder{result} & \placeholder{result} & \placeholder{result} \\
-Escalation & \placeholder{result} & \placeholder{result} & \placeholder{result} \\
+Direct & 66.67\% & 22.37\% & 0.52s & 28.93 \\
+Clarify-Guard & 14.58\% & 59.21\% & 0.93s & 61.11 \\
+Escalation & 18.75\% & 59.21\% & 0.93s & 60.71 \\
 \bottomrule
 \end{tabular}
-\caption{Main results on the primary BFCL subsets. Values will be filled after final runs.}
+\caption{Turn-level 200-example pilot on exported \texttt{multi\_turn\_miss\_param} turns. Harmful-call rate is measured on turns whose exported ground truth expects clarification; no-call rate on required turns measures over-clarification.}
 \label{tab:main-results}
 \end{table}
 
-\begin{table}[t]
-\centering
-\small
-\begin{tabular}{lcc}
-\toprule
-Subset & Best Method & Main Observation \\
-\midrule
-Missing Parameters & \placeholder{TBD} & \placeholder{TBD} \\
-Multi-turn & \placeholder{TBD} & \placeholder{TBD} \\
-Memory & \placeholder{TBD} & \placeholder{TBD} \\
-\bottomrule
-\end{tabular}
-\caption{Planned category-level summary table.}
-\label{tab:subset-results}
-\end{table}
+\subsection{Discussion}
+The main positive result is large and easy to interpret. On the exported \texttt{multi\_turn\_miss\_param} pilot, Clarify-Guard reduces harmful-call rate on empty-ground-truth turns from 66.67\% to 14.58\%, a drop of 52.09 percentage points. Escalation is slightly weaker on the same slice, reducing the same metric to 18.75\%. This confirms that the direct baseline often calls tools too eagerly when the request is incomplete, and that a second-pass verifier can suppress many of these mistakes.
 
-Planned figures include:
-\begin{itemize}
-    \item a bar chart of BFCL accuracy by method;
-    \item a cost-versus-accuracy trade-off plot;
-    \item a small qualitative error table with successful and failed clarification/repair cases.
-\end{itemize}
+The negative result is equally important. The same guard raises the no-call rate on required turns from 22.37\% to 59.21\%, while average latency increases from about 0.52s to about 0.93s and average completion length more than doubles. In other words, the verifier is useful but over-conservative. It often treats multi-step but still executable requests as requiring clarification. This is exactly the kind of mixed result that a coursework report can usefully analyse: robustness improves on one failure mode, but only at a substantial cost in false clarifications and runtime.
 
-\subsection{Reproducibility Details to Fill}
-The final experiment section will also include the following implementation details, which are intentionally left as explicit placeholders so they are not forgotten:
-\begin{itemize}
-    \item serving framework: \placeholder{vLLM / other backend};
-    \item decoding parameters: \placeholder{temperature, top-p, max tokens};
-    \item seeds: \placeholder{list of seeds};
-    \item hardware: \placeholder{local GPU and any cluster runs};
-    \item exact BFCL categories and sample counts: \placeholder{final selection};
-    \item runtime budget definition: \placeholder{turn cap and/or token cap}.
-\end{itemize}
+The pilot also explains why Escalation does not beat Clarify-Guard here. The exported pilot contains only \texttt{multi\_turn\_miss\_param} turns, so there are few opportunities for Escalation to preserve normal-case behaviour. In this setting, Escalation behaves very similarly to Clarify-Guard but with a small amount of extra repair overhead. For that reason, the strongest current result should be reported as the Clarify-Guard pilot, while Escalation should be treated as a secondary comparison rather than the main contribution.
+
+\subsection{Limitations}
+There are three important limitations. First, the official BFCL direct baseline uses the full benchmark evaluator, but the guard experiments use exported turn-level pilots rather than a full end-to-end BFCL rerun. This makes the guard analysis more diagnostic than leaderboard-style. Second, the study uses only one small open model and one local serving configuration, so the conclusions should be interpreted as model-specific rather than universal. Third, the verifier prompt is evidently not yet well calibrated: the over-clarification rate on required turns is high, and the current work should therefore be read as a robustness--cost trade-off study rather than a claim of overall superiority.
 
 \section{Related Work}
 \subsection{Tool Use and Agentic LLMs}
-Tool use has become a standard way to extend LLMs beyond pure text generation. Toolformer showed that models can learn API use from a small number of demonstrations in a self-supervised manner \citep{schick2023toolformer}. ReAct then established the broader reasoning-and-acting framing that underlies much of modern agent work \citep{yao2023react}. Reflexion further argued that language agents can improve through verbal feedback and reflective memory rather than weight updates alone \citep{shinn2023reflexion}. These works motivate the general idea that tool-using agents should not be treated as single-shot text generators.
+Toolformer and ReAct established the basic idea that language models can interleave generation with external actions \citep{schick2023toolformer,yao2023react}. Reflexion later showed that verbal feedback and self-improvement loops can support more robust agentic behaviour without immediate weight updates \citep{shinn2023reflexion}. These works motivate the broader setting but do not directly answer the narrow question asked in this project: whether a very lightweight controller can improve robustness for a small open model on BFCL.
 
-\subsection{Benchmarking Tool Calling}
-For this project, BFCL is the most directly relevant benchmark because it evaluates structured function calling across diverse real-world settings and explicitly extends into multi-turn and agentic scenarios \citep{patil2025bfcl}. The benchmark is especially useful because it separates simpler single-turn tool use from more realistic cases involving missing parameters, memory, and other stateful behaviours. That separation is important here: the proposed method is not expected to help every category equally, so conclusions should be grounded in the subsets where escalation is actually relevant.
+\subsection{BFCL and Tool-Calling Evaluation}
+BFCL is the most relevant benchmark because it evaluates structured function calling across a range of realistic conditions, including stateful multi-turn settings \citep{patil2025bfcl}. The benchmark is especially useful here because it separates normal multi-turn cases from more difficult missing-parameter and memory cases. That separation allows the project to make a much cleaner claim than a single overall score would permit.
 
-\subsection{Clarification, Failure Handling, and Repair}
-Several recent papers show that clarification and repair are active research directions rather than solved engineering details. FAIL-TaLMs demonstrates that under-specified queries and missing tools remain systematic failure modes for tool-augmented language models \citep{trevino2025failtalms}. STYLE studies when to ask clarification questions in conversational settings and shows that the decision to clarify matters, rather than simply asking more questions \citep{chen2024style}. AskToAct extends this line by studying self-correcting clarification for tool use \citep{zhang2025asktoact}. HiTEC targets parameter mis-filling via hierarchical checklists \citep{cui2025hitec}, while CRITICTOOL focuses on the diagnosis and critique of tool-calling errors \citep{huang2025critictool}.
-
-These papers strongly inform the design of the present coursework, but they also help delimit its novelty. This project does \emph{not} claim to invent clarification, checklists, or self-repair. Instead, it asks a narrower empirical question: if we restrict ourselves to small open models and a fixed test-time budget, can a simple controller allocate its limited interaction budget better than direct calling alone? That framing is modest, but appropriate for a reproducible coursework project.
+\subsection{Clarification and Failure Handling}
+Recent work has studied clarification, parameter checking, and failure diagnosis from several directions. FAIL-TaLMs highlights missing information and unavailable tools as common sources of failure \citep{trevino2025failtalms}. STYLE and AskToAct study when to ask clarification questions \citep{chen2024style,zhang2025asktoact}. HiTEC introduces structured parameter-checking for tool use \citep{cui2025hitec}, while CRITICTOOL focuses on critique and correction of erroneous tool-calling behaviour \citep{huang2025critictool}. This coursework is positioned relative to that literature as a small, focused empirical study rather than a new general-purpose method. The intended contribution is a controlled BFCL-v4 analysis of a fixed-budget clarification guard for a 4B open model.
 
 \section{Conclusions}
-This draft fixes the scope of the project before the final experiments are complete. The report studies a small but concrete problem in agentic tool use: whether a fixed-budget escalation policy can improve BFCL performance for small open models by choosing among direct calling, clarification, and one-step repair. The planned contribution is empirical, reproducible, and intentionally narrow. If the final results show gains, the report will argue that limited extra interaction is worth spending selectively rather than uniformly. If the gains are weak or inconsistent, the report will instead provide a useful negative result: for small open models, the main bottleneck may still be base tool competence rather than policy-level escalation. In either case, the final paper will ground its conclusions in official BFCL metrics, cost-aware analysis, and error breakdowns rather than headline claims alone.
+The project is now tightly scoped around one concrete failure mode: under-specified multi-turn tool calls on BFCL. The current direct baseline already shows that this slice is substantially harder than the normal multi-turn setting for \PrimaryModel{}, which gives the project a clear empirical target. The proposed intervention is intentionally lightweight: a verifier-based clarification guard that suppresses incomplete draft calls, and an escalation policy that uses the guard only when necessary. The current 200-turn pilot already reveals the main trade-off. The guard sharply reduces harmful premature tool calls on under-specified turns, but it also over-clarifies many turns that should have executed directly. This is still a useful coursework result. It shows that better inference control can improve one robustness metric while harming another, and it motivates a careful discussion of when clarification is genuinely useful and when it becomes over-conservative. The final version should therefore present the method as a mixed-result robustness study grounded in both the official BFCL baseline and the new turn-level diagnostics.
 
 \bibliographystyle{plainnat}
 \bibliography{references}
